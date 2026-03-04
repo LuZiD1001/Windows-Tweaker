@@ -1,0 +1,11 @@
+[
+  {
+    "timestamp": "2026-03-04T19:44:07.023537",
+    "cpu_score": 1.14,
+    "ram_score": 4885.4,
+    "disk_score": 1119.2,
+    "network_latency": 23.24,
+    "overall_score": 4638,
+    "profile_applied": "ultra"
+  }
+]
