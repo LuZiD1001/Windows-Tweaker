@@ -1,0 +1,22 @@
+# LuzidSettings - Requirements
+# Install with: pip install -r requirements.txt
+
+# GUI Framework
+customtkinter>=5.2.0
+Pillow>=10.1.0
+
+# System Monitoring
+psutil>=5.9.0
+
+# Configuration
+python-dotenv>=1.0.0
+
+# License System (optional - only needed if using Supabase auth)
+# supabase>=2.0.0
+
+# Scheduling (optional - for automation tasks)
+# schedule>=1.2.0
+
+# Testing
+pytest>=7.0.0
+pytest-mock>=3.0.0
