@@ -28,6 +28,7 @@ from src.registry_tweaker import RegistryTweaker, REGISTRY_TWEAKS
 from src.benchmark import BenchmarkEngine
 from src.startup_manager import StartupManager
 from src.restore_points import RestorePointManager
+from src.gui.command_palette import CommandPalette, QuickActionBar
 
 logger = logging.getLogger("LuzidSettings.main")
 _LOG_FILES = ("luzidmain.log", "luzidauth.log")
@@ -293,6 +294,9 @@ class LuzidSettings(ctk.CTk):
 
         self._build_ui()
 
+        # ── Keyboard shortcuts & command palette ───────────────────────────────
+        self._bind_shortcuts()
+
         # ── Background services ───────────────────────────────────────
         self.game_detector.on("on_game_detected", self._on_game_detected)
         self.game_detector.on("on_game_closed",   self._on_game_closed)
@@ -401,6 +405,12 @@ class LuzidSettings(ctk.CTk):
         self._status_lbl = ctk.CTkLabel(right, text="● READY",
                                          font=Theme.FONT_LABEL, text_color=Theme.SUCCESS)
         self._status_lbl.pack(side="left", padx=(0, 14), pady=17)
+        ctk.CTkLabel(
+            right,
+            text="CTRL+K: Command Palette",
+            font=Theme.FONT_BODY_SM,
+            text_color=Theme.TEXT_DIM,
+        ).pack(side="left", padx=(0, 10), pady=17)
         ctk.CTkButton(right, text="▲ FPS", width=72, height=30,
                       fg_color=Theme.CARD_BG2, hover_color=Theme.CARD_BORDER2,
                       text_color=Theme.SUCCESS, font=Theme.FONT_LABEL_BOLD,
@@ -535,6 +545,46 @@ class LuzidSettings(ctk.CTk):
             self._ui_queue.put(lambda r=row, v=val: r.set(str(v)))
         threading.Thread(target=_load, daemon=True).start()
         return row
+
+    def _go_tab(self, tab_label: str) -> None:
+        """Programmatically switch to a tab if it exists."""
+        try:
+            self.tabs.set(tab_label)
+        except Exception:
+            logger.debug("Tab not found: %s", tab_label)
+
+    def _bind_shortcuts(self) -> None:
+        """Global keyboard shortcuts for power users."""
+        # Core navigation
+        self.bind_all("<Control-Key-1>", lambda e: self._go_tab("📊 DASHBOARD"))
+        self.bind_all("<Control-Key-2>", lambda e: self._go_tab("⚡ PROFILES"))
+        self.bind_all("<Control-Key-3>", lambda e: self._go_tab("⚙️ TWEAKS"))
+        self.bind_all("<Control-Key-4>", lambda e: self._go_tab("🛠️ GENERAL"))
+        self.bind_all("<Control-Key-5>", lambda e: self._go_tab("🔒 PRIVACY"))
+        self.bind_all("<Control-Key-6>", lambda e: self._go_tab("🪟 WIN 11"))
+        self.bind_all("<Control-Key-7>", lambda e: self._go_tab("📈 MONITOR"))
+        self.bind_all("<Control-Key-8>", lambda e: self._go_tab("🔧 SETTINGS"))
+        self.bind_all("<Control-Key-9>", lambda e: self._go_tab("📋 LOGS"))
+
+        # Command palette
+        self.bind_all("<Control-k>", lambda e: self._open_command_palette())
+        self.bind_all("<Control-K>", lambda e: self._open_command_palette())
+
+    def _open_command_palette(self) -> None:
+        """Open VS-Code style command palette with common actions."""
+        commands = {
+            "Dashboard: Open overview": lambda: self._go_tab("📊 DASHBOARD"),
+            "Profiles: Open profiles tab": lambda: self._go_tab("⚡ PROFILES"),
+            "Tweaks: Open tweaks tab": lambda: self._go_tab("⚙️ TWEAKS"),
+            "Restore: Open restore tab": lambda: self._go_tab("🛡️ RESTORE"),
+            "Network: Open network tab": lambda: self._go_tab("🌐 NETWORK"),
+            "Processes: Open process scanner": lambda: self._go_tab("🔍 PROCESSES"),
+            "Run: Full optimisation": self._run_full_optimize,
+        }
+        try:
+            CommandPalette(self, commands)
+        except Exception as exc:
+            logger.debug("Command palette failed: %s", exc)
 
     def _process_ui_queue(self) -> None:
         """Drain the thread-safe UI queue on the main thread."""
@@ -950,6 +1000,17 @@ class LuzidSettings(ctk.CTk):
         self._dash_ram   = _MetricRow(live, "Memory Usage",      "—", Theme.INFO,    even=True)
         self._dash_disk  = _MetricRow(live, "Disk Usage",        "—", Theme.TEXT_H2, even=False)
         self._dash_procs = _MetricRow(live, "Running Processes", "—", Theme.WARNING, even=True)
+
+        # Quick access bar
+        quick = QuickActionBar(
+            scroll,
+            commands=[
+                ("Create Restore Point", "🛡️", self._create_restore_point),
+                ("Open Profiles", "⚡", lambda: self._go_tab("⚡ PROFILES")),
+                ("Run Full Optimise", "🚀", self._run_full_optimize),
+            ],
+        )
+        quick.pack(fill="x", padx=20, pady=(0, 16))
 
     # ── Monitor loop ──────────────────────────────────────────────────────────
 
