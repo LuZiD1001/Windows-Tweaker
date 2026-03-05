@@ -281,6 +281,13 @@ class LuzidSettings(ctk.CTk):
         self.restore_manager  = RestorePointManager()
         self._overlay: Optional[FPSOverlay] = None
 
+        # Animated nav + status helpers
+        self._nav_buttons: list[ctk.CTkButton] = []
+        self._nav_container: Optional[ctk.CTkFrame] = None
+        self._nav_indicator: Optional[ctk.CTkFrame] = None
+        self._nav_indicator_y: Optional[int] = None
+        self._status_pulse_index: int = 0
+
         # Thread-safe UI update queue — background threads put lambdas here
         # instead of calling self.after() directly (which causes RuntimeError)
         self._ui_queue: queue.Queue = queue.Queue()
@@ -432,6 +439,9 @@ class LuzidSettings(ctk.CTk):
                       corner_radius=Theme.RADIUS_SM,
                       command=self.iconify).pack(side="left", padx=(3, 0), pady=14)
 
+        # Soft pulse animation for READY status
+        self.after(700, self._pulse_status)
+
     # ── Nav ───────────────────────────────────────────────────────────────────
     # NOTE: called AFTER self.tabs is created
 
@@ -440,6 +450,7 @@ class LuzidSettings(ctk.CTk):
                            fg_color=Theme.SIDEBAR, corner_radius=0)
         nav.grid(row=0, column=0, sticky="nsew")
         nav.grid_propagate(False)
+        self._nav_container = nav
 
         # Logo mark
         mark = ctk.CTkFrame(nav, fg_color=Theme.ACCENT,
@@ -471,13 +482,21 @@ class LuzidSettings(ctk.CTk):
             ("  Restore",    "🛡️ RESTORE"),
         ]
         for label, key in nav_items:
-            ctk.CTkButton(nav, text=label, height=34,
-                           corner_radius=Theme.RADIUS_SM,
-                           fg_color="transparent", hover_color=Theme.CARD_BG2,
-                           text_color=Theme.TEXT_P, font=Theme.FONT_LABEL,
-                           anchor="w",
-                           command=lambda k=key: self.tabs.set(k)
-                           ).pack(fill="x", padx=12, pady=1)
+            index = len(self._nav_buttons)
+            btn = ctk.CTkButton(
+                nav,
+                text=label,
+                height=34,
+                corner_radius=Theme.RADIUS_SM,
+                fg_color="transparent",
+                hover_color=Theme.CARD_BG2,
+                text_color=Theme.TEXT_P,
+                font=Theme.FONT_LABEL,
+                anchor="w",
+                command=lambda k=key, i=index: self._on_nav_click(k, i),
+            )
+            btn.pack(fill="x", padx=12, pady=1)
+            self._nav_buttons.append(btn)
 
         ctk.CTkFrame(nav, height=1, fg_color=Theme.CARD_BORDER).pack(
             fill="x", padx=12, pady=12)
@@ -549,22 +568,113 @@ class LuzidSettings(ctk.CTk):
     def _go_tab(self, tab_label: str) -> None:
         """Programmatically switch to a tab if it exists."""
         try:
-            self.tabs.set(tab_label)
+            self._select_tab(tab_label)
         except Exception:
             logger.debug("Tab not found: %s", tab_label)
+
+    def _on_nav_click(self, tab_label: str, index: int) -> None:
+        """Handle sidebar nav clicks with animated indicator + tab switch."""
+        self._select_tab(tab_label)
+        self._animate_nav_to(index)
+
+    def _select_tab(self, tab_label: str) -> None:
+        """Centralised tab selection so keyboard, palette & nav feel the same."""
+        self.tabs.set(tab_label)
+        try:
+            idx = self._ALL_TABS.index(tab_label)
+        except ValueError:
+            return
+        self._animate_nav_to(idx)
+
+    def _ensure_nav_indicator(self) -> None:
+        """Create the glowing nav indicator frame if it does not yet exist."""
+        if self._nav_container is None or self._nav_indicator is not None:
+            return
+        self._nav_container.update_idletasks()
+        self._nav_indicator = ctk.CTkFrame(
+            self._nav_container,
+            width=4,
+            fg_color=Theme.ACCENT,
+            corner_radius=Theme.RADIUS_SM,
+        )
+        self._nav_indicator.place(x=6, y=40, height=34)
+        self._nav_indicator_y = 40
+
+    def _animate_nav_to(self, index: int) -> None:
+        """Smoothly slide the nav accent bar to the given button index."""
+        if not self._nav_buttons:
+            return
+        if index < 0 or index >= len(self._nav_buttons):
+            return
+
+        self._ensure_nav_indicator()
+        btn = self._nav_buttons[index]
+        nav = self._nav_container
+        if nav is None or self._nav_indicator is None:
+            return
+
+        nav.update_idletasks()
+        target_y = btn.winfo_y() + max(0, btn.winfo_height() // 2 - 18)
+
+        if self._nav_indicator_y is None:
+            self._nav_indicator.place_configure(y=target_y, height=36)
+            self._nav_indicator_y = target_y
+            return
+
+        start_y = self._nav_indicator_y
+        distance = target_y - start_y
+        if distance == 0:
+            return
+
+        steps = 12
+        duration_ms = 160
+        step_ms = max(10, duration_ms // steps)
+
+        def _step(step: int = 0) -> None:
+            if self._nav_indicator is None:
+                return
+            if step >= steps:
+                self._nav_indicator.place_configure(y=target_y)
+                self._nav_indicator_y = target_y
+                return
+            t = (step + 1) / steps
+            eased = t * t * (3 - 2 * t)  # smoothstep easing
+            y = int(start_y + distance * eased)
+            self._nav_indicator.place_configure(y=y)
+            self._nav_indicator_y = y
+            self.after(step_ms, lambda s=step + 1: _step(s))
+
+        _step()
+
+    def _pulse_status(self) -> None:
+        """Subtle breathing animation on READY status dot."""
+        try:
+            txt = self._status_lbl.cget("text")
+        except Exception:
+            return
+
+        # Only pulse when in idle READY state, keep solid for warnings/errors
+        if not str(txt).startswith("● READY"):
+            self.after(700, self._pulse_status)
+            return
+
+        self._status_pulse_index = 1 - self._status_pulse_index
+        colors = (Theme.SUCCESS, Theme.ACCENT)
+        self._status_lbl.configure(text_color=colors[self._status_pulse_index])
+        self.after(700, self._pulse_status)
 
     def _bind_shortcuts(self) -> None:
         """Global keyboard shortcuts for power users."""
         # Core navigation
-        self.bind_all("<Control-Key-1>", lambda e: self._go_tab("📊 DASHBOARD"))
-        self.bind_all("<Control-Key-2>", lambda e: self._go_tab("⚡ PROFILES"))
-        self.bind_all("<Control-Key-3>", lambda e: self._go_tab("⚙️ TWEAKS"))
-        self.bind_all("<Control-Key-4>", lambda e: self._go_tab("🛠️ GENERAL"))
-        self.bind_all("<Control-Key-5>", lambda e: self._go_tab("🔒 PRIVACY"))
-        self.bind_all("<Control-Key-6>", lambda e: self._go_tab("🪟 WIN 11"))
-        self.bind_all("<Control-Key-7>", lambda e: self._go_tab("📈 MONITOR"))
-        self.bind_all("<Control-Key-8>", lambda e: self._go_tab("🔧 SETTINGS"))
-        self.bind_all("<Control-Key-9>", lambda e: self._go_tab("📋 LOGS"))
+        self.bind_all("<Control-Key-1>", lambda e: self._select_tab("📊 DASHBOARD"))
+        self.bind_all("<Control-Key-2>", lambda e: self._select_tab("⚡ PROFILES"))
+        self.bind_all("<Control-Key-3>", lambda e: self._select_tab("⚙️ TWEAKS"))
+        self.bind_all("<Control-Key-4>", lambda e: self._select_tab("🛠️ GENERAL"))
+        self.bind_all("<Control-Key-5>", lambda e: self._select_tab("🔒 PRIVACY"))
+        self.bind_all("<Control-Key-6>", lambda e: self._select_tab("🪟 WIN 11"))
+        self.bind_all("<Control-Key-7>", lambda e: self._select_tab("📈 MONITOR"))
+        self.bind_all("<Control-Key-8>", lambda e: self._select_tab("🔧 SETTINGS"))
+        self.bind_all("<Control-Key-9>", lambda e: self._select_tab("📋 LOGS"))
 
         # Command palette
         self.bind_all("<Control-k>", lambda e: self._open_command_palette())
